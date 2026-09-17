@@ -12,6 +12,7 @@ import (
 
 func TestLoad_NotFound(t *testing.T) {
 	testutil.SetHome(t, t.TempDir())
+	clearConfigEnv(t)
 
 	_, err := Load()
 	if err == nil {
@@ -42,6 +43,7 @@ func TestLoad_Malformed(t *testing.T) {
 func TestLoad_Incomplete(t *testing.T) {
 	home := t.TempDir()
 	testutil.SetHome(t, home)
+	clearConfigEnv(t)
 
 	// Valid JSON, but missing account_id and domain.
 	if err := os.WriteFile(filepath.Join(home, configFileName), []byte(`{"api_token":"tok"}`), 0600); err != nil {
@@ -59,6 +61,7 @@ func TestLoad_Incomplete(t *testing.T) {
 
 func TestSaveThenLoad_RoundTrip(t *testing.T) {
 	testutil.SetHome(t, t.TempDir())
+	clearConfigEnv(t)
 
 	want := &Config{APIToken: "tok-123", AccountID: "acct-456", Domain: "example.com"}
 	if err := Save(want); err != nil {
@@ -71,6 +74,67 @@ func TestSaveThenLoad_RoundTrip(t *testing.T) {
 	}
 	if *got != *want {
 		t.Errorf("Load() = %+v, want %+v", got, want)
+	}
+}
+
+// clearConfigEnv ensures ZT_API_TOKEN/ZT_ACCOUNT_ID/ZT_DOMAIN aren't leaking
+// in from the environment this test binary happens to run in (a developer's
+// shell, or a CI job that also exercises the action itself), so tests that
+// exist to check file-based behavior aren't silently short-circuited by env
+// overrides.
+func clearConfigEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv(envAPIToken, "")
+	t.Setenv(envAccountID, "")
+	t.Setenv(envDomain, "")
+}
+
+func TestLoad_EnvOverridesFile(t *testing.T) {
+	home := t.TempDir()
+	testutil.SetHome(t, home)
+
+	if err := Save(&Config{APIToken: "file-tok", AccountID: "file-acct", Domain: "file.example.com"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(envAPIToken, "env-tok")
+	t.Setenv(envAccountID, "")
+	t.Setenv(envDomain, "")
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	want := &Config{APIToken: "env-tok", AccountID: "file-acct", Domain: "file.example.com"}
+	if *got != *want {
+		t.Errorf("Load() = %+v, want %+v (env token should win, other fields from file)", got, want)
+	}
+}
+
+func TestLoad_EnvOnly_NoConfigFile(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	t.Setenv(envAPIToken, "env-tok")
+	t.Setenv(envAccountID, "env-acct")
+	t.Setenv(envDomain, "env.example.com")
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load() error = %v, want success from env vars alone with no config file", err)
+	}
+	want := &Config{APIToken: "env-tok", AccountID: "env-acct", Domain: "env.example.com"}
+	if *got != *want {
+		t.Errorf("Load() = %+v, want %+v", got, want)
+	}
+}
+
+func TestLoad_EnvPartial_StillIncomplete(t *testing.T) {
+	testutil.SetHome(t, t.TempDir())
+	t.Setenv(envAPIToken, "env-tok")
+	t.Setenv(envAccountID, "")
+	t.Setenv(envDomain, "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatal("Load() = nil error, want error when only ZT_API_TOKEN is set and no config file exists")
 	}
 }
 
