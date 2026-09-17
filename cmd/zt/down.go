@@ -8,6 +8,7 @@ import (
 	"github.com/casablanque-code/cfzt/internal/cloudflared"
 	"github.com/casablanque-code/cfzt/internal/service"
 	"github.com/casablanque-code/cfzt/internal/state"
+	"github.com/casablanque-code/cfzt/internal/validate"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -28,6 +29,9 @@ func init() {
 
 func runDown(cmd *cobra.Command, args []string) error {
 	name := args[0]
+	if err := validate.TunnelName(name); err != nil {
+		return err
+	}
 
 	cfg, err := config.Load()
 	if err != nil {
