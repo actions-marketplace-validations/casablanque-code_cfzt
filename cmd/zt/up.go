@@ -11,6 +11,7 @@ import (
 	"github.com/casablanque-code/cfzt/internal/docker"
 	"github.com/casablanque-code/cfzt/internal/service"
 	"github.com/casablanque-code/cfzt/internal/state"
+	"github.com/casablanque-code/cfzt/internal/validate"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -63,6 +64,9 @@ type tunnelOpts struct {
 
 func runUp(cmd *cobra.Command, args []string) error {
 	name := args[0]
+	if err := validate.TunnelName(name); err != nil {
+		return err
+	}
 	var port string
 
 	okFn := color.New(color.FgGreen).SprintFunc()
