@@ -102,7 +102,7 @@ across CI runs: **[docs/github-action.md](docs/github-action.md)**.
 
 1. Creates a Cloudflare Tunnel (reuses a same-name tunnel only if zt created it — see below)
 2. Configures ingress rules
-3. Upserts a CNAME DNS record (replaces a stale zt-created record automatically; refuses to touch a foreign record unless `--force` is given)
+3. Upserts a CNAME DNS record (replaces a stale zt-created record automatically; refuses to touch a foreign record unless `--force` is given, and prints a warning naming what it deleted when it does)
 4. Creates a Zero Trust Access application with an access policy
 5. Installs and starts a systemd (Linux), LaunchAgent (macOS), or Task
    Scheduler (Windows) service
@@ -452,6 +452,8 @@ One of `--allow` or `--public` is required.
 | `--force` | Replace an existing DNS record for the hostname even if zt didn't create it; also delete a same-name Cloudflare tunnel that zt didn't create |
 
 Every tunnel zt creates is tagged with Cloudflare Tunnel metadata `managed_by: cfzt`. If `zt up` finds a tunnel with the target name that already carries that tag (typically a stale one left behind by an interrupted or torn-down run), it deletes and recreates it automatically. If it finds a same-name tunnel *without* the tag — created via the Cloudflare dashboard, another tool, or an older cfzt release — it refuses and exits with an error rather than deleting someone else's tunnel; pass `--force` to delete it anyway.
+
+Same idea for DNS: replacing a record `zt` didn't create (with `--force`) prints a visible warning naming the record type and what it was pointing to, instead of deleting it silently. This is a plain printed warning, not an interactive confirmation prompt — a blocking prompt would break the CI-driven PR-preview use case (see [docs/github-action.md](docs/github-action.md)), so review the printed warning in your run logs if you're not watching the terminal live.
 
 ### `zt logs`
 

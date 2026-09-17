@@ -223,10 +223,14 @@ func createTunnel(opts tunnelOpts) error {
 
 	// 4. Upsert DNS record
 	step("Upserting CNAME: " + hostname)
-	dnsRecordID, err := cf.UpsertCNAME(zoneID, hostname, tunnelID, opts.force)
+	dnsRecordID, replacedForeign, err := cf.UpsertCNAME(zoneID, hostname, tunnelID, opts.force)
 	if err != nil {
 		rollback("", "")
 		return err
+	}
+	if replacedForeign != nil {
+		fmt.Printf("     %s WARNING: deleted an existing %s record for %s (was pointing to %q) — not created by zt, removed because of --force\n",
+			warnFn("!"), replacedForeign.Type, hostname, replacedForeign.Content)
 	}
 	fmt.Printf("     %s DNS record ready\n", okFn("✓"))
 
