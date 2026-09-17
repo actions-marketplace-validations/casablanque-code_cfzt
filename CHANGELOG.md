@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-09-18
+
+Security-focused round, prompted by an external code review of `internal/cloudflare`, `internal/cloudflared`, `config`, and `cmd/zt/init.go`.
+
+### Added
+
+- `internal/validate.TunnelName` — a single, central check for what counts as a valid tunnel/service name (`^[a-z0-9][a-z0-9-]{0,62}$`), applied everywhere a name is accepted: `zt up`, `zt down`, `zt restart`, `zt status`, `zt logs`, and `zt.yaml` manifest loading. Previously a raw, unvalidated name was used directly as a filesystem directory (`~/.zt/tunnels/<name>`), a systemd/launchd/Task Scheduler unit name, and a DNS hostname prefix all at once, with nothing stopping a value like `../foo` or `foo/../../bar` from escaping the intended directory that `zt down`'s `os.RemoveAll` operates on
+- `zt.yaml` service names are now validated at `Load` time (same `TunnelName` check), so `zt apply`/`zt export` catch an invalid name before it's used to create Cloudflare resources
+- `ZT_API_TOKEN`, `ZT_ACCOUNT_ID`, `ZT_DOMAIN` environment variables, as an alternative credential source to `~/.zt-config.json`. Each one, if set, overrides the corresponding value from the config file; set all three and `zt init` isn't needed at all — useful on ephemeral CI runners/containers, or to rotate the token without re-running `zt init` interactively
+- Every tunnel `zt up`/`zt apply` creates is now tagged with Cloudflare Tunnel metadata `managed_by: cfzt` (`internal/cloudflare.FindTunnelByNameManaged`)
+
+### Changed
+
+- **Breaking:** `zt up`/`zt apply` no longer treats any same-name Cloudflare tunnel as automatically stale and safe to delete. A tunnel tagged `managed_by: cfzt` (cfzt's own, e.g. left behind by an interrupted run) is still deleted and recreated automatically. A same-name tunnel *without* the tag — created via the Cloudflare dashboard, another tool, or a pre-0.11.0 cfzt release — now makes `zt up` refuse and exit with an error instead of silently deleting it; pass `--force` to delete it anyway. Tunnels created before this release aren't tagged, so the first `zt up` that collides with one of them will need `--force`
+- `--force` on `zt up`/`zt apply` now also prints an explicit warning (record type + what it was pointing to) whenever it actually deletes a foreign DNS record, instead of doing so silently. Still a plain printed warning, not a blocking confirmation prompt — same reasoning as `--public`'s warning: a prompt would break `cfzt-action`'s non-interactive PR-preview workflow. Grep your CI logs for it if you're not watching a run live
+- `zt init` no longer echoes the API token to the terminal while typing — hidden via `golang.org/x/term.ReadPassword` on a real TTY, with a transparent fallback to a normal line read when stdin is redirected (scripted input, or the existing tests)
+
 ## [0.10.2] - 2026-08-26
 
 ### Added
