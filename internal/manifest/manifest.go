@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/casablanque-code/cfzt/internal/validate"
 	"gopkg.in/yaml.v3"
 )
 
@@ -45,6 +46,9 @@ func Load(path string) (*Manifest, error) {
 		m.Services = make(map[string]ServiceSpec)
 	}
 	for name, svc := range m.Services {
+		if err := validate.TunnelName(name); err != nil {
+			return nil, fmt.Errorf("service %q: %w", name, err)
+		}
 		if !svc.Docker && svc.Port == 0 {
 			return nil, fmt.Errorf("service %q: must set either 'port' or 'docker: true'", name)
 		}
