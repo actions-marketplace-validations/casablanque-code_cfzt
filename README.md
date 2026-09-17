@@ -248,6 +248,8 @@ You will be prompted for three values:
 
 `zt init` validates the token and domain against the Cloudflare API before saving. Config is stored at `~/.zt-config.json` (mode 0600).
 
+Alternatively, set `ZT_API_TOKEN`, `ZT_ACCOUNT_ID`, and `ZT_DOMAIN` in the environment — useful on ephemeral CI runners or containers where writing a config file isn't desirable, or to swap the token without re-running `zt init`. Any of the three, if set, overrides the corresponding value from `~/.zt-config.json`; set all three and `zt init` isn't needed at all.
+
 ---
 
 ## Usage
