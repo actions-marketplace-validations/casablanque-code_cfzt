@@ -11,6 +11,7 @@ import (
 	"github.com/casablanque-code/cfzt/internal/docker"
 	"github.com/casablanque-code/cfzt/internal/service"
 	"github.com/casablanque-code/cfzt/internal/state"
+	"github.com/casablanque-code/cfzt/internal/validate"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -45,7 +46,8 @@ func init() {
 	upCmd.Flags().StringVar(&flagContainerPort, "container-port", "", "which container-side port to expose when the container publishes more than one (e.g. 443) — requires --docker")
 	upCmd.Flags().BoolVar(&flagTCP, "tcp", false, "force TCP (http2) protocol — use if QUIC/UDP is blocked by your ISP")
 	upCmd.Flags().StringVar(&flagProtocol, "protocol", "auto", "cloudflared protocol: auto, quic, http2")
-	upCmd.Flags().BoolVar(&flagForce, "force", false, "replace an existing DNS record that zt didn't create")
+	upCmd.Flags().BoolVar(&flagForce, "force", false,
+		"replace an existing DNS record that zt didn't create, and delete a same-name Cloudflare tunnel that isn't managed by zt")
 }
 
 // tunnelOpts carries all intent parameters for creating a tunnel.
@@ -63,6 +65,9 @@ type tunnelOpts struct {
 
 func runUp(cmd *cobra.Command, args []string) error {
 	name := args[0]
+	if err := validate.TunnelName(name); err != nil {
+		return err
+	}
 	var port string
 
 	okFn := color.New(color.FgGreen).SprintFunc()
@@ -171,11 +176,24 @@ func createTunnel(opts tunnelOpts) error {
 	}
 	fmt.Printf("     %s zone: %s\n", okFn("✓"), zoneID)
 
-	// 2. Create tunnel — clean up stale CF tunnel with same name first
+	// 2. Create tunnel — clean up stale CF tunnel with same name first.
+	// Only auto-delete a tunnel cfzt itself created (tagged managed_by=cfzt);
+	// a same-name tunnel created some other way (dashboard, another tool,
+	// or a pre-tagging cfzt version) is left alone unless --force is passed.
 	step("Creating Cloudflare tunnel: " + opts.name)
-	if staleID, err := cf.FindTunnelByName(opts.name); err == nil && staleID != "" {
-		fmt.Printf("     %s found stale tunnel %s — cleaning up\n", warnFn("!"), staleID)
-		_ = cf.DeleteTunnel(staleID)
+	if staleID, managed, err := cf.FindTunnelByNameManaged(opts.name); err == nil && staleID != "" {
+		switch {
+		case managed:
+			fmt.Printf("     %s found stale tunnel %s (managed by cfzt) — cleaning up\n", warnFn("!"), staleID)
+			_ = cf.DeleteTunnel(staleID)
+		case opts.force:
+			fmt.Printf("     %s found tunnel %s not managed by cfzt — deleting (--force)\n", warnFn("!"), staleID)
+			_ = cf.DeleteTunnel(staleID)
+		default:
+			return fmt.Errorf(
+				"a Cloudflare tunnel named %q already exists and isn't managed by cfzt — refusing to delete it automatically; remove it yourself or re-run with --force",
+				opts.name)
+		}
 	}
 	tunnelID, credJSON, err := cf.CreateTunnel(opts.name)
 	if err != nil {
@@ -205,10 +223,14 @@ func createTunnel(opts tunnelOpts) error {
 
 	// 4. Upsert DNS record
 	step("Upserting CNAME: " + hostname)
-	dnsRecordID, err := cf.UpsertCNAME(zoneID, hostname, tunnelID, opts.force)
+	dnsRecordID, replacedForeign, err := cf.UpsertCNAME(zoneID, hostname, tunnelID, opts.force)
 	if err != nil {
 		rollback("", "")
 		return err
+	}
+	if replacedForeign != nil {
+		fmt.Printf("     %s WARNING: deleted an existing %s record for %s (was pointing to %q) — not created by zt, removed because of --force\n",
+			warnFn("!"), replacedForeign.Type, hostname, replacedForeign.Content)
 	}
 	fmt.Printf("     %s DNS record ready\n", okFn("✓"))
 

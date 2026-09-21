@@ -76,12 +76,15 @@ func TestUpsertCNAME_DeletesExistingFirst(t *testing.T) {
 		}
 	})
 
-	id, err := c.UpsertCNAME("zone-1", "app.example.com", "tunnel-abc", false)
+	id, replaced, err := c.UpsertCNAME("zone-1", "app.example.com", "tunnel-abc", false)
 	if err != nil {
 		t.Fatalf("UpsertCNAME() error = %v", err)
 	}
 	if id != "new-rec" {
 		t.Errorf("UpsertCNAME() = %q, want new-rec", id)
+	}
+	if replaced != nil {
+		t.Errorf("UpsertCNAME() replacedForeign = %+v, want nil when the replaced record was zt's own", replaced)
 	}
 
 	wantOrder := []string{"GET /zones/zone-1/dns_records", "DELETE /zones/zone-1/dns_records/old-rec", "POST /zones/zone-1/dns_records"}
@@ -107,7 +110,7 @@ func TestUpsertCNAME_NoExisting(t *testing.T) {
 		jsonHandler(200, `{"result":{"id":"new-rec"},"success":true,"errors":[]}`)(w, r)
 	})
 
-	if _, err := c.UpsertCNAME("zone-1", "app.example.com", "tunnel-abc", false); err != nil {
+	if _, _, err := c.UpsertCNAME("zone-1", "app.example.com", "tunnel-abc", false); err != nil {
 		t.Fatalf("UpsertCNAME() error = %v", err)
 	}
 }
@@ -127,7 +130,7 @@ func TestUpsertCNAME_RefusesForeignRecordWithoutForce(t *testing.T) {
 		}
 	})
 
-	_, err := c.UpsertCNAME("zone-1", "app.example.com", "tunnel-abc", false)
+	_, _, err := c.UpsertCNAME("zone-1", "app.example.com", "tunnel-abc", false)
 	if err == nil {
 		t.Fatal("UpsertCNAME() = nil error, want error for a foreign A record without --force")
 	}
@@ -154,7 +157,7 @@ func TestUpsertCNAME_ReplacesForeignRecordWithForce(t *testing.T) {
 		}
 	})
 
-	id, err := c.UpsertCNAME("zone-1", "app.example.com", "tunnel-abc", true)
+	id, replaced, err := c.UpsertCNAME("zone-1", "app.example.com", "tunnel-abc", true)
 	if err != nil {
 		t.Fatalf("UpsertCNAME() error = %v", err)
 	}
@@ -163,6 +166,9 @@ func TestUpsertCNAME_ReplacesForeignRecordWithForce(t *testing.T) {
 	}
 	if len(calls) != 3 || calls[1] != "DELETE" {
 		t.Errorf("calls = %v, want GET, DELETE, POST", calls)
+	}
+	if replaced == nil || replaced.ID != "foreign-rec" || replaced.Type != "A" || replaced.Content != "1.2.3.4" {
+		t.Errorf("UpsertCNAME() replacedForeign = %+v, want the deleted foreign A record so the caller can warn about it", replaced)
 	}
 }
 

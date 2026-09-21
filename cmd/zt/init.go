@@ -9,6 +9,7 @@ import (
 	"github.com/casablanque-code/cfzt/config"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 var initCmd = &cobra.Command{
@@ -27,15 +28,23 @@ func runInit(cmd *cobra.Command, args []string) error {
 	reader := bufio.NewReader(os.Stdin)
 
 	fmt.Print("  API Token (Cloudflare → My Profile → API Tokens): ")
-	token, _ := reader.ReadString('\n')
-	token = strings.TrimSpace(token)
+	token, err := readSecret(reader)
+	if err != nil {
+		return fmt.Errorf("reading API token: %w", err)
+	}
 
 	fmt.Print("  Account ID (right sidebar on any CF dashboard page): ")
-	accountID, _ := reader.ReadString('\n')
+	accountID, err := reader.ReadString('\n')
+	if err != nil && accountID == "" {
+		return fmt.Errorf("reading account ID: %w", err)
+	}
 	accountID = strings.TrimSpace(accountID)
 
 	fmt.Print("  Domain (e.g. example.com — must be on Cloudflare): ")
-	domain, _ := reader.ReadString('\n')
+	domain, err := reader.ReadString('\n')
+	if err != nil && domain == "" {
+		return fmt.Errorf("reading domain: %w", err)
+	}
 	domain = strings.TrimSpace(domain)
 
 	if token == "" || accountID == "" || domain == "" {
@@ -83,4 +92,27 @@ func runInit(cmd *cobra.Command, args []string) error {
 	fmt.Println("  Next: zt up <service_name> <port>")
 	fmt.Println("  Example: zt up portainer --docker --allow you@example.com")
 	return nil
+}
+
+// readSecret reads the API token without echoing it to the terminal, when
+// stdin is a real TTY. When stdin is redirected (piping a token in from a
+// script, or CI), it falls back to a normal buffered line read — there's no
+// terminal to suppress echo on, and term.ReadPassword would fail outright
+// since it requires a valid terminal file descriptor.
+func readSecret(reader *bufio.Reader) (string, error) {
+	fd := int(os.Stdin.Fd())
+	if !term.IsTerminal(fd) {
+		line, err := reader.ReadString('\n')
+		if err != nil && line == "" {
+			return "", err
+		}
+		return strings.TrimSpace(line), nil
+	}
+
+	bytes, err := term.ReadPassword(fd)
+	fmt.Println() // ReadPassword doesn't echo the Enter keypress
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(bytes)), nil
 }

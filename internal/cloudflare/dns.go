@@ -63,19 +63,28 @@ func (c *Client) GetZoneID(domain string) (string, error) {
 // that's the normal "re-run zt up on a stale tunnel" case. Any other existing
 // record (a real A/AAAA/CNAME the caller didn't create with zt) is left alone
 // unless force is true, since deleting it would be destructive and silent.
-func (c *Client) UpsertCNAME(zoneID, subdomain, tunnelID string, force bool) (string, error) {
+//
+// The second return value is non-nil exactly when a foreign (non-zt) record
+// was deleted to make room for the new one — the caller should treat that as
+// worth surfacing loudly, since --force just silently destroyed a DNS record
+// it didn't create.
+func (c *Client) UpsertCNAME(zoneID, subdomain, tunnelID string, force bool) (recordID string, replacedForeign *DNSRecord, err error) {
 	existing, err := c.FindDNSRecord(zoneID, subdomain)
 	if err != nil {
-		return "", fmt.Errorf("checking existing DNS records: %w", err)
+		return "", nil, fmt.Errorf("checking existing DNS records: %w", err)
 	}
 	if existing != nil {
-		if !force && !looksLikeZtRecord(existing) {
-			return "", fmt.Errorf(
+		foreign := !looksLikeZtRecord(existing)
+		if !force && foreign {
+			return "", nil, fmt.Errorf(
 				"existing DNS record found for %s (type %s, content %q) that zt didn't create — refusing to replace it\nuse --force to replace it anyway",
 				subdomain, existing.Type, existing.Content)
 		}
 		if err := c.DeleteDNSRecord(zoneID, existing.ID); err != nil {
-			return "", fmt.Errorf("removing existing DNS record: %w", err)
+			return "", nil, fmt.Errorf("removing existing DNS record: %w", err)
+		}
+		if foreign {
+			replacedForeign = existing
 		}
 	}
 
@@ -93,18 +102,18 @@ func (c *Client) UpsertCNAME(zoneID, subdomain, tunnelID string, force bool) (st
 		fmt.Sprintf("/zones/%s/dns_records", zoneID),
 		bytes.NewReader(body))
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	var dr dnsCreateResponse
 	if err := decode(resp, &dr); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if !dr.Success {
-		return "", apiErr(dr.Errors)
+		return "", nil, apiErr(dr.Errors)
 	}
-	return dr.Result.ID, nil
+	return dr.Result.ID, replacedForeign, nil
 }
 
 // DeleteDNSRecord deletes a DNS record by ID.

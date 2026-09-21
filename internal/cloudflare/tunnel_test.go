@@ -8,7 +8,7 @@ import (
 )
 
 func TestCreateTunnel_Success(t *testing.T) {
-	var gotBody map[string]string
+	var gotBody map[string]any
 	c, _ := testServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if !strings.Contains(r.URL.Path, "/accounts/test-account/cfd_tunnel") {
 			t.Errorf("path = %q, want .../accounts/test-account/cfd_tunnel", r.URL.Path)
@@ -25,10 +25,14 @@ func TestCreateTunnel_Success(t *testing.T) {
 		t.Errorf("CreateTunnel() id = %q, want tun-1", id)
 	}
 	if gotBody["name"] != "grafana" {
-		t.Errorf("request body name = %q, want grafana", gotBody["name"])
+		t.Errorf("request body name = %v, want grafana", gotBody["name"])
 	}
-	if gotBody["tunnel_secret"] == "" {
+	if s, _ := gotBody["tunnel_secret"].(string); s == "" {
 		t.Error("request body missing tunnel_secret")
+	}
+	meta, _ := gotBody["metadata"].(map[string]any)
+	if meta["managed_by"] != "cfzt" {
+		t.Errorf(`request body metadata = %v, want {"managed_by":"cfzt"}`, gotBody["metadata"])
 	}
 
 	var creds map[string]string
@@ -105,6 +109,60 @@ func TestFindTunnelByName_NoMatch(t *testing.T) {
 	}
 	if id != "" {
 		t.Errorf("FindTunnelByName() = %q, want empty string for no match", id)
+	}
+}
+
+func TestFindTunnelByNameManaged_OwnedByCfzt(t *testing.T) {
+	c, _ := testServer(t, jsonHandler(200, `{"result":[{"id":"tun-1","name":"grafana","status":"active","metadata":{"managed_by":"cfzt"}}],"success":true,"errors":[]}`))
+
+	id, managed, err := c.FindTunnelByNameManaged("grafana")
+	if err != nil {
+		t.Fatalf("FindTunnelByNameManaged() error = %v", err)
+	}
+	if id != "tun-1" {
+		t.Errorf("id = %q, want tun-1", id)
+	}
+	if !managed {
+		t.Error("managedByCfzt = false, want true for a tunnel tagged managed_by=cfzt")
+	}
+}
+
+func TestFindTunnelByNameManaged_NotOwnedByCfzt(t *testing.T) {
+	c, _ := testServer(t, jsonHandler(200, `{"result":[{"id":"tun-1","name":"grafana","status":"active"}],"success":true,"errors":[]}`))
+
+	id, managed, err := c.FindTunnelByNameManaged("grafana")
+	if err != nil {
+		t.Fatalf("FindTunnelByNameManaged() error = %v", err)
+	}
+	if id != "tun-1" {
+		t.Errorf("id = %q, want tun-1", id)
+	}
+	if managed {
+		t.Error("managedByCfzt = true, want false for a tunnel with no managed_by metadata (created outside cfzt)")
+	}
+}
+
+func TestFindTunnelByNameManaged_ForeignMetadataDoesNotCount(t *testing.T) {
+	c, _ := testServer(t, jsonHandler(200, `{"result":[{"id":"tun-1","name":"grafana","status":"active","metadata":{"managed_by":"terraform"}}],"success":true,"errors":[]}`))
+
+	_, managed, err := c.FindTunnelByNameManaged("grafana")
+	if err != nil {
+		t.Fatalf("FindTunnelByNameManaged() error = %v", err)
+	}
+	if managed {
+		t.Error("managedByCfzt = true, want false when managed_by is set to something other than cfzt")
+	}
+}
+
+func TestFindTunnelByNameManaged_NoMatch(t *testing.T) {
+	c, _ := testServer(t, jsonHandler(200, `{"result":[],"success":true,"errors":[]}`))
+
+	id, managed, err := c.FindTunnelByNameManaged("grafana")
+	if err != nil {
+		t.Fatalf("FindTunnelByNameManaged() error = %v", err)
+	}
+	if id != "" || managed {
+		t.Errorf("id = %q managed = %v, want empty id and false for no match", id, managed)
 	}
 }
 

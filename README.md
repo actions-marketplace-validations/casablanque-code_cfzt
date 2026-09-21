@@ -100,9 +100,9 @@ across CI runs: **[docs/github-action.md](docs/github-action.md)**.
 
 `zt up <name> <port> --allow <mail@example.com>` automatically:
 
-1. Creates a Cloudflare Tunnel
+1. Creates a Cloudflare Tunnel (reuses a same-name tunnel only if zt created it — see below)
 2. Configures ingress rules
-3. Upserts a CNAME DNS record (replaces a stale zt-created record automatically; refuses to touch a foreign record unless `--force` is given)
+3. Upserts a CNAME DNS record (replaces a stale zt-created record automatically; refuses to touch a foreign record unless `--force` is given, and prints a warning naming what it deleted when it does)
 4. Creates a Zero Trust Access application with an access policy
 5. Installs and starts a systemd (Linux), LaunchAgent (macOS), or Task
    Scheduler (Windows) service
@@ -247,6 +247,8 @@ You will be prompted for three values:
 | Domain | Your domain as it appears in Cloudflare (e.g. `example.com`) |
 
 `zt init` validates the token and domain against the Cloudflare API before saving. Config is stored at `~/.zt-config.json` (mode 0600).
+
+Alternatively, set `ZT_API_TOKEN`, `ZT_ACCOUNT_ID`, and `ZT_DOMAIN` in the environment — useful on ephemeral CI runners or containers where writing a config file isn't desirable, or to swap the token without re-running `zt init`. Any of the three, if set, overrides the corresponding value from `~/.zt-config.json`; set all three and `zt init` isn't needed at all.
 
 ---
 
@@ -447,7 +449,11 @@ One of `--allow` or `--public` is required.
 | `--container-port <n>` | Which container-side port to expose when the container publishes more than one (requires `--docker`) |
 | `--tcp` | Force TCP (http2) — use if QUIC/UDP is blocked by your ISP |
 | `--protocol <proto>` | Protocol: `auto` (default), `quic`, `http2` |
-| `--force` | Replace an existing DNS record for the hostname even if zt didn't create it |
+| `--force` | Replace an existing DNS record for the hostname even if zt didn't create it; also delete a same-name Cloudflare tunnel that zt didn't create |
+
+Every tunnel zt creates is tagged with Cloudflare Tunnel metadata `managed_by: cfzt`. If `zt up` finds a tunnel with the target name that already carries that tag (typically a stale one left behind by an interrupted or torn-down run), it deletes and recreates it automatically. If it finds a same-name tunnel *without* the tag — created via the Cloudflare dashboard, another tool, or an older cfzt release — it refuses and exits with an error rather than deleting someone else's tunnel; pass `--force` to delete it anyway.
+
+Same idea for DNS: replacing a record `zt` didn't create (with `--force`) prints a visible warning naming the record type and what it was pointing to, instead of deleting it silently. This is a plain printed warning, not an interactive confirmation prompt — a blocking prompt would break the CI-driven PR-preview use case (see [docs/github-action.md](docs/github-action.md)), so review the printed warning in your run logs if you're not watching the terminal live.
 
 ### `zt logs`
 

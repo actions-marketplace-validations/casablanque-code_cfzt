@@ -7,6 +7,7 @@ import (
 	"github.com/casablanque-code/cfzt/internal/cloudflared"
 	"github.com/casablanque-code/cfzt/internal/service"
 	"github.com/casablanque-code/cfzt/internal/state"
+	"github.com/casablanque-code/cfzt/internal/validate"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 )
@@ -20,6 +21,9 @@ var restartCmd = &cobra.Command{
 
 func runRestart(cmd *cobra.Command, args []string) error {
 	name := args[0]
+	if err := validate.TunnelName(name); err != nil {
+		return err
+	}
 
 	boldFmt := color.New(color.Bold).SprintFunc()
 	fmt.Printf("\n%s\n\n", boldFmt("⚡ Restarting "+name))
